@@ -8,12 +8,12 @@ paper sources with source-specific extraction for maximum fidelity.
 
 paper2md uses a **tiered extraction strategy** optimized for each source:
 
-| Source | Primary Method | Why |
-|--------|---------------|-----|
-| **arXiv** | ar5iv HTML → structural DOM walker | ar5iv = LaTeXML output (same engine as arXiv's official HTML). Already the best LaTeX→HTML converter available. |
-| **Nature** | Nature.com HTML → semantic section parser | Nature provides clean `<section data-title>` markup. Direct parsing = zero HTML artifacts. |
-| **PDF (remote)** | MinerU cloud API (precision v4 or agent v1) | SOTA document parsing for PDF. Precision API with token, agent API without. |
-| **PDF (local)** | MinerU local CLI (v3.4+, GPU auto-detect) | Local deployment via `hybrid-engine` (GPU) or `pipeline` (CPU). Models auto-download. |
+| Source                 | Primary Method                              | Reason                                                                                                           |
+| ---------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **arXiv**        | ar5iv HTML → structural DOM walker         | ar5iv = LaTeXML output (same engine as arXiv's official HTML). Already the best LaTeX→HTML converter available. |
+| **Nature**       | Nature.com HTML → semantic section parser  | Nature provides clean`<section data-title>` markup. Direct parsing = zero HTML artifacts.                      |
+| **PDF (remote)** | MinerU cloud API (precision v4 or agent v1) | SOTA document parsing for PDF. Precision API with token, agent API without.                                      |
+| **PDF (local)**  | MinerU local CLI (v3.4+, GPU auto-detect)   | Local deployment via`hybrid-engine` (GPU) or `pipeline` (CPU). Models auto-download.                         |
 
 All outputs share the same format: YAML frontmatter → clean Markdown body → `images/` subdirectory.
 
@@ -47,30 +47,27 @@ pip install "mineru[all]"
 }
 ```
 
-Server-wide settings use **environment variables** (set once at deploy time).
-Per-document parameters use **tool call arguments** (set per conversion).
-
 ## Tools
 
 ### `convert_paper`
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source` | string | ✅ | arXiv ID/URL, Nature URL/DOI, PDF URL, or local PDF path |
-| `output_dir` | string | ✅ | Absolute path to output directory |
-| `language` | string | ❌ | Document language: `en`, `ch`, `japan`, `korean`, etc. (default: `en`) |
-| `is_ocr` | boolean | ❌ | Force OCR for scanned PDFs (default: `false`) |
+| Parameter      | Type    | Required | Description                                                                     |
+| -------------- | ------- | -------- | ------------------------------------------------------------------------------- |
+| `source`     | string  | ✅       | arXiv ID/URL, Nature URL/DOI, PDF URL, or local PDF path                        |
+| `output_dir` | string  | ✅       | Absolute path to output directory                                               |
+| `language`   | string  | ❌       | Document language:`en`, `ch`, `japan`, `korean`, etc. (default: `en`) |
+| `is_ocr`     | boolean | ❌       | Force OCR for scanned PDFs (default:`false`)                                  |
 
 ### Deploy-Time Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MINERU_API_KEY` | *(empty)* | MinerU cloud API token. Empty = use agent API (no key, 10MB/20 page limit) |
-| `MINERU_USE_LOCAL` | `false` | Force local GPU deployment even if API key is set |
-| `MINERU_BACKEND` | `auto` | `auto`, `pipeline` (CPU), `vlm-engine` (GPU), `hybrid-engine` (GPU, recommended) |
-| `MODEL_VERSION` | `vlm` | `vlm` (recommended), `pipeline`, `MinerU-HTML` |
-| `ENABLE_TABLE` | `true` | Enable table recognition |
-| `ENABLE_FORMULA` | `true` | Enable formula recognition |
+| Variable             | Default     | Description                                                                              |
+| -------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `MINERU_API_KEY`   | *(empty)* | MinerU cloud API token. Empty = use agent API (no key, 10MB/20 page limit)               |
+| `MINERU_USE_LOCAL` | `false`   | Force local GPU deployment even if API key is set                                        |
+| `MINERU_BACKEND`   | `auto`    | `auto`, `pipeline` (CPU), `vlm-engine` (GPU), `hybrid-engine` (GPU, recommended) |
+| `MODEL_VERSION`    | `vlm`     | `vlm` (recommended), `pipeline`, `MinerU-HTML`                                     |
+| `ENABLE_TABLE`     | `true`    | Enable table recognition                                                                 |
+| `ENABLE_FORMULA`   | `true`    | Enable formula recognition                                                               |
 
 ### `list_supported_sources`
 
@@ -79,12 +76,12 @@ what input formats are accepted.
 
 ## Supported Input Formats
 
-| Source Type | Examples |
-|-------------|----------|
-| **arXiv** | `2301.12345`, `https://arxiv.org/abs/2301.12345`, `https://ar5iv.labs.arxiv.org/html/2301.12345`, `https://arxiv.org/pdf/2301.12345.pdf` |
-| **Nature** | `https://www.nature.com/articles/s41586-...`, `10.1038/s41586-...` |
-| **PDF URL** | `https://example.com/paper.pdf` |
-| **PDF Local** | `/path/to/paper.pdf`, `C:\papers\paper.pdf` |
+| Source Type         | Examples                                                                                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **arXiv**     | `2301.12345`, `https://arxiv.org/abs/2301.12345`, `https://ar5iv.labs.arxiv.org/html/2301.12345`, `https://arxiv.org/pdf/2301.12345.pdf` |
+| **Nature**    | `https://www.nature.com/articles/s41586-...`, `10.1038/s41586-...`                                                                           |
+| **PDF URL**   | `https://example.com/paper.pdf`                                                                                                                |
+| **PDF Local** | `/path/to/paper.pdf`, `C:\papers\paper.pdf`                                                                                                  |
 
 ## Output Structure
 
@@ -173,23 +170,6 @@ src/paper2md/
 └── storage/               # Output management
     └── __init__.py         #   Markdown writer + image asset management
 ```
-
-## Why This Approach?
-
-### arXiv: ar5iv (LaTeXML) over raw LaTeX conversion
-
-arXiv's ar5iv service already runs LaTeXML — the best LaTeX→HTML converter
-available (developed by NIST/KWARC since 2006, used by arXiv's official HTML
-offering). Parsing ar5iv HTML is equivalent to running LaTeXML locally,
-but without the heavy Perl/CPAN dependency. For the ~20% of papers where
-ar5iv fails, we fall back to the arXiv API abstract.
-
-### PDF: MinerU over Marker / Nougat
-
-For academic papers specifically, MinerU has best-in-class layout detection,
-formula recognition, and table rendering (HTML-format tables). It outperforms
-Marker on complex academic layouts and matches or exceeds Nougat on equations
-while being 10× faster. See OmniDocBench (CVPR 2025) for benchmarks.
 
 ## License
 
