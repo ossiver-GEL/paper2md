@@ -12,8 +12,8 @@ paper2md uses a **tiered extraction strategy** optimized for each source:
 | ---------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | **arXiv**        | ar5iv HTML → structural DOM walker         | ar5iv = LaTeXML output (same engine as arXiv's official HTML). Already the best LaTeX→HTML converter available. |
 | **Nature**       | Nature.com HTML → semantic section parser  | Nature provides clean`<section data-title>` markup. Direct parsing = zero HTML artifacts.                      |
-| **PDF (remote)** | MinerU cloud API (precision v4 or agent v1) | SOTA document parsing for PDF. Precision API with token, agent API without.                                      |
-| **PDF (local)**  | MinerU local CLI (v3.4+, GPU auto-detect)   | Local deployment via`hybrid-engine` (GPU) or `pipeline` (CPU). Models auto-download.                         |
+| **PDF (remote)** | [MinerU](https://github.com/opendatalab/MinerU) cloud API (precision v4 or agent v1) | SOTA document parsing for PDF. Precision API with token, agent API without.                                      |
+| **PDF (local)**  | [MinerU](https://github.com/opendatalab/MinerU) local CLI (v3.4+, GPU auto-detect)   | Local deployment via`hybrid-engine` (GPU) or `pipeline` (CPU). Models auto-download.                         |
 
 All outputs share the same format: YAML frontmatter → clean Markdown body → `images/` subdirectory.
 
@@ -23,7 +23,7 @@ All outputs share the same format: YAML frontmatter → clean Markdown body → 
 cd paper2md
 pip install -e .
 
-# Optional: local GPU MinerU
+# Optional: local GPU MinerU (see https://github.com/opendatalab/MinerU)
 pip install "mineru[all]"
 ```
 
@@ -68,6 +68,9 @@ pip install "mineru[all]"
 | `MODEL_VERSION`    | `vlm`     | `vlm` (recommended), `pipeline`, `MinerU-HTML`                                     |
 | `ENABLE_TABLE`     | `true`    | Enable table recognition                                                                 |
 | `ENABLE_FORMULA`   | `true`    | Enable formula recognition                                                               |
+
+> **Note:** For full documentation on MinerU backends, model versions, hardware
+> requirements, and advanced configuration, see the [MinerU Documentation](https://opendatalab.github.io/MinerU/).
 
 ### `list_supported_sources`
 
