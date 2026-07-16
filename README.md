@@ -19,15 +19,41 @@ All outputs share the same format: YAML frontmatter → clean Markdown body → 
 
 ## Installation
 
+Requires **Python >= 3.11**.
+
 ```bash
 cd paper2md
 pip install -e .
 
 # Optional: local GPU MinerU (see https://github.com/opendatalab/MinerU)
-pip install "mineru[all]"
+pip install -e ".[local-mineru]"
+# or equivalently:
+# pip install "mineru[all]>=3.4.0"
 ```
 
 ## MCP Configuration
+
+Use either the console script (simpler) or the module path:
+
+```json
+{
+  "mcpServers": {
+    "paper2md": {
+      "command": "paper2md",
+      "args": [],
+      "env": {
+        "MINERU_API_KEY": "sk-your-key-here",
+        "MINERU_BACKEND": "hybrid-engine",
+        "MODEL_VERSION": "vlm",
+        "ENABLE_TABLE": "true",
+        "ENABLE_FORMULA": "true"
+      }
+    }
+  }
+}
+```
+
+If `paper2md` is not on PATH, use the module form instead:
 
 ```json
 {
@@ -149,7 +175,10 @@ class PubMedExtractor(BaseExtractor):
 
     async def extract(self, config: ConvertConfig) -> ParseResult:
         # Your extraction logic
-        return ParseResult(markdown_body="# Extracted Content\n...")
+        return ParseResult(
+            markdown_body="# Extracted Content\n...",
+            source_type="pubmed",
+        )
 ```
 
 That's it — no other files need modification.
