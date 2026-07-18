@@ -79,7 +79,7 @@ If `paper2md` is not on PATH, use the module form instead:
 
 | Parameter      | Type    | Required | Description                                                                     |
 | -------------- | ------- | -------- | ------------------------------------------------------------------------------- |
-| `source`     | string  | ✅       | arXiv ID/URL, Nature URL/DOI, PDF URL, or local PDF path                        |
+| `source`     | string  | ✅       | arXiv ID/URL, Nature URL/DOI, DOI, PMID, PMCID, PubMed/PMC URL, PDF URL, or local PDF path                        |
 | `output_dir` | string  | ✅       | Absolute path to output directory                                               |
 | `language`   | string  | ❌       | Document language:`en`, `ch`, `japan`, `korean`, etc. (default: `en`) |
 | `is_ocr`     | boolean | ❌       | Force OCR for scanned PDFs (default:`false`)                                  |
@@ -109,6 +109,7 @@ what input formats are accepted.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **arXiv**     | `2301.12345`, `https://arxiv.org/abs/2301.12345`, `https://ar5iv.labs.arxiv.org/html/2301.12345`, `https://arxiv.org/pdf/2301.12345.pdf` |
 | **Nature**    | `https://www.nature.com/articles/s41586-...`, `10.1038/s41586-...`                                                                           |
+| **Europe PMC** | `10.1016/j.eclinm.2022.101704`, `PMID:36467456`, `PMC9716327`, `https://pubmed.ncbi.nlm.nih.gov/36467456`, `https://europepmc.org/article/MED/36467456` |
 | **PDF URL**   | `https://example.com/paper.pdf`                                                                                                                |
 | **PDF Local** | `/path/to/paper.pdf`, `C:\papers\paper.pdf`                                                                                                  |
 
@@ -195,6 +196,8 @@ src/paper2md/
 │   ├── registry.py        #   Auto-discovery SourceRegistry
 │   ├── arxiv.py           #   arXiv: ar5iv HTML → structural DOM walker
 │   ├── nature.py          #   Nature: semantic HTML parser
+│   ├── europe_pmc.py      #   Europe PMC: JATS XML → Markdown (OA papers in PMC)
+│   ├── jats_parser.py     #   Reusable JATS XML → Markdown converter
 │   └── pdf.py             #   PDF: URL + local file (MinerU backend)
 ├── mineru/                # MinerU document parsing integration
 │   ├── client.py          #   Cloud API (precision v4 + agent v1)

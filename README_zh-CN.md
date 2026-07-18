@@ -12,6 +12,7 @@ paper2md 采用针对每种来源优化的**分层提取策略**：
 | ---------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **arXiv**              | ar5iv HTML → 结构化 DOM 遍历器                | ar5iv = LaTeXML 输出（与 arXiv 官方 HTML 使用相同引擎），已是目前最好的 LaTeX→HTML 转换器                                 |
 | **Nature**             | Nature.com HTML → 语义化章节解析器            | Nature 提供标准的 `<section data-title>` 标记，直接解析，零 HTML 残留                                                     |
+| **Europe PMC**         | Europe PMC REST API → JATS XML 解析器         | JATS XML 是 NLM 标准的结构化全文格式。覆盖 PMC 中所有 OA 论文（免费，无需 Key）                                            |
 | **PDF（远程）**        | [MinerU](https://github.com/opendatalab/MinerU) 云端 API（precision v4 或 agent v1） | SOTA 级的 PDF 文档解析。Precision API 需 token，Agent API 无需                                                      |
 | **PDF（本地）**        | [MinerU](https://github.com/opendatalab/MinerU) 本地 CLI（v3.4+，GPU 自动检测） | 本地部署，支持 `hybrid-engine`（GPU）或 `pipeline`（CPU），模型自动下载                                                   |
 
@@ -79,7 +80,7 @@ pip install -e ".[local-mineru]"
 
 | 参数           | 类型    | 必填 | 说明                                                              |
 | -------------- | ------- | ---- | ----------------------------------------------------------------- |
-| `source`       | string  | ✅   | arXiv ID/URL、Nature URL/DOI、PDF URL 或本地 PDF 路径             |
+| `source`       | string  | ✅   | arXiv ID/URL、Nature URL/DOI、DOI、PMID、PMCID、PubMed/PMC URL、PDF URL 或本地 PDF 路径             |
 | `output_dir`   | string  | ✅   | 输出目录的绝对路径                                                |
 | `language`     | string  | ❌   | 文档语言：`en`、`ch`、`japan`、`korean` 等（默认：`en`）          |
 | `is_ocr`       | boolean | ❌   | 对扫描版 PDF 强制 OCR（默认：`false`）                            |
@@ -108,6 +109,7 @@ pip install -e ".[local-mineru]"
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **arXiv**      | `2301.12345`、`https://arxiv.org/abs/2301.12345`、`https://ar5iv.labs.arxiv.org/html/2301.12345`、`https://arxiv.org/pdf/2301.12345.pdf`              |
 | **Nature**     | `https://www.nature.com/articles/s41586-...`、`10.1038/s41586-...`                                                                                    |
+| **Europe PMC** | `10.1016/j.eclinm.2022.101704`、`PMID:36467456`、`PMC9716327`、`https://pubmed.ncbi.nlm.nih.gov/36467456`、`https://europepmc.org/article/MED/36467456` |
 | **PDF URL**    | `https://example.com/paper.pdf`                                                                                                                       |
 | **PDF 本地**   | `/path/to/paper.pdf`、`C:\papers\paper.pdf`                                                                                                           |
 
@@ -194,6 +196,8 @@ src/paper2md/
 │   ├── registry.py        #   自动发现 SourceRegistry
 │   ├── arxiv.py           #   arXiv：ar5iv HTML → 结构化 DOM 遍历器
 │   ├── nature.py          #   Nature：语义化 HTML 解析器
+│   ├── europe_pmc.py      #   Europe PMC：JATS XML → Markdown（PMC 中 OA 论文）
+│   ├── jats_parser.py     #   通用 JATS XML → Markdown 转换器
 │   └── pdf.py             #   PDF：URL + 本地文件（MinerU 后端）
 ├── mineru/                # MinerU 文档解析集成
 │   ├── client.py          #   云端 API（precision v4 + agent v1）
