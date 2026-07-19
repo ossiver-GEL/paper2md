@@ -282,6 +282,22 @@ class JATSParser:
                 meta.url = f"https://doi.org/{aid.text}"
                 break
 
+        # CC License (from <permissions>)
+        permissions = _find(article_meta, "permissions")
+        if permissions is not None:
+            license_el = _find(permissions, "license")
+            if license_el is not None:
+                license_text = _get_text(license_el)
+                # Store license in abstract for frontmatter (metadata has no license field)
+                # We'll append it to the abstract
+                if license_text:
+                    existing_abstract = meta.abstract
+                    license_short = license_text[:200]
+                    if existing_abstract:
+                        meta.abstract = f"[{license_short}] {existing_abstract}"
+                    else:
+                        meta.abstract = license_short
+
         return meta
 
     @staticmethod
@@ -324,13 +340,30 @@ class JATSParser:
 
         parts = ["## Abstract\n"]
 
-        # Process abstract sections (structured abstracts) or plain paragraphs
+        # 1. Check for a preamble <title> (e.g. "Summary") before the <sec> list
+        preamble_title = _find(abstract_el, "title")
+        if preamble_title is not None:
+            preamble_text = _get_text(preamble_title)
+            if preamble_text.strip() and preamble_text.strip().lower() not in ("abstract",):
+                parts.append(f"**{preamble_text}**  ")
+
+        # 2. Check for text directly in <abstract> before the first <sec>
+        #    (some JATS put unstructured summary text here)
+        if abstract_el.text and abstract_el.text.strip():
+            preamble_text = abstract_el.text.strip()
+            if preamble_text:
+                parts.append(preamble_text + "\n")
+
+        # 3. Process abstract sections (structured abstracts) or plain paragraphs
         secs = _find_all(abstract_el, "sec")
         if secs:
             for sec in secs:
                 title_el = _find(sec, "title")
                 if title_el is not None:
                     section_title = _get_text(title_el)
+                    # Skip non-content sections like "Keywords"
+                    if section_title.strip().lower() in ("keywords", "keyword"):
+                        continue
                     parts.append(f"**{section_title}**  ")
                 # Collect paragraphs
                 for para in _find_all(sec, "p"):
@@ -340,11 +373,22 @@ class JATSParser:
             for para in _find_all(abstract_el, "p"):
                 parts.append(self._para_to_md(para))
 
-        # If no <p> elements, use raw text
+        # If no content found, use raw text
         if len(parts) == 1:  # only "## Abstract"
             text = _get_text(abstract_el)
             if text:
                 parts.append(text + "\n")
+
+        # Extract keywords from <kwd-group> (may be in article-meta, not inside abstract)
+        kwd_group = _find(article_meta, "kwd-group")
+        if kwd_group is not None:
+            keywords = []
+            for kwd in _find_all(kwd_group, "kwd"):
+                kw = _get_text(kwd)
+                if kw:
+                    keywords.append(kw)
+            if keywords:
+                parts.append("\n**Keywords:** " + "; ".join(keywords) + "\n")
 
         return "\n".join(parts) + "\n"
 
@@ -368,6 +412,8 @@ class JATSParser:
                 parts.append(self._table_to_md(child))
             elif tag == "disp-formula":
                 parts.append(self._formula_to_md(child))
+            elif tag == "boxed-text":
+                parts.append(self._boxed_text_to_md(child))
 
         return "\n".join(parts)
 
@@ -411,40 +457,109 @@ class JATSParser:
     # ------------------------------------------------------------------
 
     def _para_to_md(self, para: ET.Element) -> str:
-        """Convert a <p> element to Markdown, preserving inline formatting.
+        """Convert a <p> element to Markdown.
 
-        Also handles <fig> and <table-wrap> that may appear inline
-        within paragraphs (common in JATS).
+        Handles mixed content: JATS paragraphs can interleave inline elements
+        (italic, bold, xref, etc.) with block elements (fig, table-wrap,
+        boxed-text). Text and blocks are serialized in document order.
         """
-        # Check for block-level children inside the paragraph
-        parts: list[str] = []
-        has_block_children = False
+        _BLOCK_TAGS = frozenset({"fig", "table-wrap", "boxed-text", "disp-formula"})
+
+        has_blocks = any(
+            _strip_ns(c.tag) in _BLOCK_TAGS for c in para
+        )
+
+        if not has_blocks:
+            # Simple paragraph — inline formatting only
+            text = self._inline_to_md(para)
+            return text.strip() + "\n" if text.strip() else ""
+
+        # ------------------------------------------------------------------
+        # Mixed content: walk in document order, flushing inline text
+        # whenever we encounter a block-level child.
+        # ------------------------------------------------------------------
+        output: list[str] = []
+        inline_buf: list[str] = []
+
+        def _flush_inline() -> None:
+            if inline_buf:
+                text = " ".join(inline_buf).strip()
+                if text:
+                    output.append(text + "\n")
+                inline_buf.clear()
+
+        # Text that precedes the first child element
+        if para.text and para.text.strip():
+            inline_buf.append(para.text.strip())
 
         for child in para:
             tag = _strip_ns(child.tag)
-            if tag == "fig":
-                has_block_children = True
-                parts.append(self._fig_to_md(child))
-            elif tag == "table-wrap":
-                has_block_children = True
-                parts.append(self._table_to_md(child))
 
-        # If there were block children, extract the text separately
-        if has_block_children:
-            # Get text that's not inside fig/table
-            text_parts = []
-            for child in para:
-                tag = _strip_ns(child.tag)
-                if tag not in ("fig", "table-wrap"):
-                    text_parts.append(self._inline_to_md(child))
-            text = " ".join(t for t in text_parts if t.strip())
-            if text.strip():
-                parts.insert(0, text.strip() + "\n")
-            return "\n".join(parts) + "\n"
+            if tag in _BLOCK_TAGS:
+                _flush_inline()
+                if tag == "fig":
+                    output.append(self._fig_to_md(child))
+                elif tag == "table-wrap":
+                    output.append(self._table_to_md(child))
+                elif tag == "boxed-text":
+                    output.append(self._boxed_text_to_md(child))
+                elif tag == "disp-formula":
+                    output.append(self._formula_to_md(child))
+            else:
+                # Inline element — render and accumulate
+                rendered = self._inline_to_md(child)
+                if rendered.strip():
+                    inline_buf.append(rendered.strip())
 
-        # Simple paragraph — just inline formatting
-        text = self._inline_to_md(para)
-        return text.strip() + "\n" if text.strip() else ""
+            # Tail text that follows this child (before the next sibling)
+            if child.tail and child.tail.strip():
+                inline_buf.append(child.tail.strip())
+
+        _flush_inline()
+
+        return "".join(output)
+
+    def _boxed_text_to_md(self, boxed: ET.Element) -> str:
+        """Convert a <boxed-text> element (callout / info box) to Markdown.
+
+        Boxed text typically contains a <caption> with a <title> and
+        nested <sec> elements. Rendered as a blockquote with heading.
+        """
+        parts: list[str] = []
+
+        # Caption / title
+        caption = _find(boxed, "caption")
+        if caption is not None:
+            cap_title = _find(caption, "title")
+            if cap_title is not None:
+                parts.append(f"\n> **{_get_text(cap_title)}**\n")
+
+        # Process child sections and paragraphs
+        for child in boxed:
+            tag = _strip_ns(child.tag)
+            if tag == "caption":
+                continue  # Handled above
+            elif tag == "sec":
+                sec_md = self._section_to_md(child, level=3)
+                # Indent each line with blockquote marker
+                for line in sec_md.split("\n"):
+                    stripped = line.strip()
+                    if stripped:
+                        parts.append(f"> {stripped}\n")
+            elif tag == "p":
+                para_md = self._para_to_md(child)
+                for line in para_md.split("\n"):
+                    stripped = line.strip()
+                    if stripped:
+                        parts.append(f"> {stripped}\n")
+            elif tag == "fig":
+                fig_md = self._fig_to_md(child)
+                for line in fig_md.split("\n"):
+                    stripped = line.strip()
+                    if stripped:
+                        parts.append(f"> {stripped}\n")
+
+        return "".join(parts)
 
     def _inline_to_md(self, element: ET.Element) -> str:
         """Recursively convert inline JATS elements to Markdown.
@@ -595,16 +710,33 @@ class JATSParser:
     # ------------------------------------------------------------------
 
     def _table_to_md(self, table_wrap: ET.Element) -> str:
-        """Convert a <table-wrap> to a Markdown table."""
+        """Convert a <table-wrap> to a Markdown table.
+
+        Handles <label>, <caption> (with nested <p>), the XHTML <table>,
+        and <table-wrap-foot> footnotes.
+        """
         parts: list[str] = []
 
         # Table title / label
         label_el = _find(table_wrap, "label")
         title_el = _find(table_wrap, "title")
-        if label_el is not None or title_el is not None:
-            lbl = f"{_get_text(label_el)}. " if label_el is not None else ""
-            ttl = _get_text(title_el) if title_el is not None else ""
-            parts.append(f"\n**{lbl}{ttl}**\n")
+
+        # Caption may be in <caption> (JATS) rather than <title>
+        caption_el = _find(table_wrap, "caption")
+        caption_text = ""
+        if caption_el is not None:
+            # <caption> often contains a <p> with the actual text
+            cap_p = _find(caption_el, "p")
+            if cap_p is not None:
+                caption_text = _get_text(cap_p)
+            else:
+                caption_text = _get_text(caption_el)
+
+        lbl = f"{_get_text(label_el)}. " if label_el is not None else ""
+        ttl = _get_text(title_el) if title_el is not None else ""
+        description = caption_text or ttl
+        if lbl.strip() or description.strip():
+            parts.append(f"\n**{lbl}{description}**\n")
 
         # Find the actual HTML <table> inside <table-wrap>
         # JATS may embed XHTML tables directly
@@ -620,46 +752,77 @@ class JATSParser:
                 if table_el is not None:
                     break
 
-        if table_el is None:
-            return ""
+        if table_el is not None:
+            # Parse thead + tbody
+            rows: list[list[str]] = []
 
-        # Parse thead + tbody
-        rows: list[list[str]] = []
+            thead = _find(table_el, "thead") or _find(table_el, "tgroup")
+            # Find ALL tbody sections (multi-part tables have multiple tbodies)
+            all_tbodies = _find_all(table_el, "tbody")
+            if not all_tbodies:
+                all_tbodies = [table_el]  # fallback: parse the table element directly
 
-        thead = _find(table_el, "thead") or _find(table_el, "tgroup")
-        tbody = _find(table_el, "tbody") or table_el
+            # Header row
+            if thead is not None:
+                trs = _find_all(thead, "tr") or _find_all(thead, "row")
+                for row in trs:
+                    cells = []
+                    for cell in _find_all(row, "th"):
+                        cells.append(_get_text(cell).replace("|", r"\|"))
+                    if cells:
+                        rows.append(cells)
 
-        # Header row
-        if thead is not None:
-            for row in _find_all(thead, "tr") or _find_all(thead, "row"):
-                cells = []
-                for cell in _find_all(row, "th"):
-                    cells.append(_get_text(cell).replace("|", r"\|"))
-                if cells:
-                    rows.append(cells)
+            # Body rows — iterate all tbodies (multi-part table support)
+            for tbody in all_tbodies:
+                trs = _find_all(tbody, "tr") or _find_all(tbody, "row")
+                for row in trs:
+                    cells = []
+                    for cell in _find_all(row, "td") or _find_all(row, "entry"):
+                        cells.append(_get_text(cell).replace("|", r"\|"))
+                    if cells:
+                        rows.append(cells)
 
-        # Body rows
-        for row in _find_all(tbody, "tr") or _find_all(tbody, "row"):
-            cells = []
-            for cell in _find_all(row, "td") or _find_all(row, "entry"):
-                cells.append(_get_text(cell).replace("|", r"\|"))
-            if cells:
-                rows.append(cells)
+            if rows:
+                # Build Markdown table
+                max_cols = max(len(r) for r in rows)
+                normalized = [r + [""] * (max_cols - len(r)) for r in rows]
 
-        if not rows:
-            return ""
+                for i, row in enumerate(normalized):
+                    parts.append("| " + " | ".join(row) + " |")
+                    if i == 0:
+                        parts.append("| " + " | ".join(["---"] * max_cols) + " |")
 
-        # Build Markdown table
-        max_cols = max(len(r) for r in rows)
-        # Normalize rows
-        normalized = [r + [""] * (max_cols - len(r)) for r in rows]
+                parts.append("")
 
-        for i, row in enumerate(normalized):
-            parts.append("| " + " | ".join(row) + " |")
-            if i == 0:
-                parts.append("| " + " | ".join(["---"] * max_cols) + " |")
+        # ------------------------------------------------------------------
+        # Table footnotes (<table-wrap-foot> — may be multiple)
+        # ------------------------------------------------------------------
+        for table_foot in _find_all(table_wrap, "table-wrap-foot"):
+            for fn in _find_all(table_foot, "fn"):
+                fn_label = _find(fn, "label")
+                fn_para = _find(fn, "p")
 
-        parts.append("")
+                label_text = _get_text(fn_label) if fn_label is not None else ""
+                para_text = self._para_to_md(fn_para) if fn_para is not None else ""
+
+                if label_text:
+                    parts.append(f"^{label_text}^ {para_text.strip()}")
+                else:
+                    parts.append(f"> {para_text.strip()}\n")
+
+            if parts and not parts[-1].endswith("\n"):
+                parts.append("")
+
+        # ------------------------------------------------------------------
+        # Nested <table-wrap> (multi-part tables)
+        # Some JATS documents nest additional <table-wrap> elements within
+        # the parent to represent multi-part tables. Recurse into them.
+        # ------------------------------------------------------------------
+        for child in table_wrap:
+            tag = _strip_ns(child.tag)
+            if tag == "table-wrap":
+                parts.append(self._table_to_md(child))
+
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
@@ -691,15 +854,48 @@ class JATSParser:
     # ------------------------------------------------------------------
 
     def _parse_back(self, back: ET.Element) -> str:
-        """Parse <back> element (references, acknowledgments, etc.)."""
+        """Parse <back> element (references, acknowledgments, etc.).
+
+        Handles <ack> at both top-level and nested inside <sec>.
+        """
         parts: list[str] = []
 
-        # Acknowledgments
+        # Acknowledgments — may be direct <ack> or inside a <sec>
         ack = _find(back, "ack")
+        if ack is None:
+            # Look inside <sec> elements
+            for sec in _find_all(back, "sec"):
+                title_el = _find(sec, "title")
+                sec_title = _get_text(title_el) if title_el is not None else ""
+                if sec_title.lower() in ("acknowledgements", "acknowledgments", "acknowledgement"):
+                    ack = sec
+                    break
+
         if ack is not None:
-            parts.append("\n## Acknowledgements\n")
-            for para in _find_all(ack, "p"):
-                parts.append(self._para_to_md(para))
+            tag = _strip_ns(ack.tag)
+            if tag == "sec":
+                parts.append("\n## Acknowledgements\n")
+                # Process all children except title
+                for child in ack:
+                    ctag = _strip_ns(child.tag)
+                    if ctag == "title":
+                        continue
+                    elif ctag == "p":
+                        parts.append(self._para_to_md(child))
+                    elif ctag == "fig":
+                        parts.append(self._fig_to_md(child))
+            else:
+                parts.append("\n## Acknowledgements\n")
+                for para in _find_all(ack, "p"):
+                    parts.append(self._para_to_md(para))
+
+        # Other top-level sections in back (appendices, etc.)
+        for sec in _find_all(back, "sec"):
+            title_el = _find(sec, "title")
+            sec_title = _get_text(title_el) if title_el is not None else ""
+            if sec_title.lower() in ("acknowledgements", "acknowledgments", "acknowledgement"):
+                continue  # Already handled above
+            parts.append(self._section_to_md(sec, level=2))
 
         # Reference list
         ref_list = _find(back, "ref-list")
@@ -711,11 +907,21 @@ class JATSParser:
                 if ref_text:
                     parts.append(f"{i}. {ref_text}")
 
-        # Supplementary material (sometimes in back)
-        supp = _find(back, "supplementary-material")
-        if supp is not None:
+        # Supplementary material
+        for supp in _find_all(back, "supplementary-material"):
             parts.append("\n## Supplementary Material\n")
             parts.append(self._section_to_md(supp, level=3))
+
+        # Footnotes group (appendix, supplementary data links, etc.)
+        fn_group = _find(back, "fn-group")
+        if fn_group is not None:
+            for fn in _find_all(fn_group, "fn"):
+                label_el = _find(fn, "label")
+                label = _get_text(label_el) if label_el is not None else ""
+                if label:
+                    parts.append(f"\n## {label}\n")
+                for para in _find_all(fn, "p"):
+                    parts.append(self._para_to_md(para))
 
         return "\n".join(parts) + "\n" if parts else ""
 
